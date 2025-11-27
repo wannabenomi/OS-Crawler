@@ -14,6 +14,9 @@ void UrlFrontier::push(const std::string& url) {
         
         // 3. Notify one waiting worker that data is available
         cv.notify_one(); 
+    } else {
+        // --- NEW MODIFICATION ---
+        std::cout << "[System] Duplicate found & skipped: " << url << std::endl;
     }
 }
 
