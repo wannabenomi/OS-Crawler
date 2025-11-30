@@ -28,6 +28,9 @@ public:
     // --- NEW PERSISTENCE METHODS ---
     void saveData(const std::string& filename);
     void loadData(const std::string& filename);
+    
+    // --- NEW: EXPORT TO CSV ---
+    void exportToCSV(const std::string& filename);
 };
 
 #endif

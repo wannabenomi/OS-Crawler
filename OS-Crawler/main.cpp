@@ -2,80 +2,98 @@
 #include <thread>
 #include <vector>
 #include <chrono>
-#include <csignal> // For Signal Handling
+#include <csignal>
 #include <atomic>
 #include "HttpUtils.h"
 #include "UrlFrontier.h"
 
 UrlFrontier frontier;
-std::atomic<bool> keepRunning(true); // Atomic flag for the main loop
+std::atomic<bool> keepRunning(true); 
 
-// THE SIGNAL HANDLER (Interrupt Service Routine)
 void signalHandler(int signum) {
     std::cout << "\n\n!!! INTERRUPT RECEIVED (Signal " << signum << ") !!!" << std::endl;
     keepRunning = false;
-    frontier.shutdown(); // Wake up threads so they can exit
+    frontier.shutdown(); 
 }
 
 void crawlerWorker(int id) {
     std::string url;
     while (frontier.pop(url)) {
-        // If signal received, stop working immediately
         if (!keepRunning) break;
 
         std::cout << "[Thread " << id << "] Downloading: " << url << std::endl;
         PageResult result = HttpUtils::downloadPage(url);
 
         if (result.status_code == 200) {
-            // std::cout << "[Thread " << id << "] Found " << result.links.size() << " links." << std::endl;
+            // LOG SUCCESS
+            std::cout << "[Thread " << id << "] DONE " << url 
+                      << " (" << result.links.size() << " links)" << std::endl;
+            
             for (const auto& link : result.links) {
                 frontier.push(link);
             }
+        } else {
+            // LOG FAILURE
+             std::cout << "[Thread " << id << "] FAILED " << url << std::endl;
         }
         
-        // Small delay to make logs readable
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 }
 
+// ... keep imports and worker function the same ...
+
 int main() {
-    // 1. REGISTER SIGNAL HANDLER (Ctrl+C)
     signal(SIGINT, signalHandler);
 
     std::cout << "--- OS CRAWLER STARTED ---" << std::endl;
     std::cout << "Press Ctrl+C to stop and save state." << std::endl;
 
-    // 2. Load previous state if exists
     frontier.loadData("crawler_state.txt");
 
-    // If queue is empty (fresh start), seed it
     if (frontier.getSize() == 0) {
+        std::cout << "[System] Queue empty. Seeding..." << std::endl;
         frontier.push("http://crawler-test.com/");
-        frontier.push("http://example.com/");
+        frontier.push("https://www.wikipedia.org/"); // <--- HTTPS Test!
+        frontier.push("https://example.com/");
     }
 
-    // 3. Spawn Threads
     int thread_count = 5;
     std::vector<std::thread> pool;
     for (int i = 0; i < thread_count; ++i) {
         pool.emplace_back(crawlerWorker, i + 1);
     }
 
-    // 4. Main Loop (Waits for Ctrl+C)
+    // --- NEW MODIFICATION: AUTO-STOP LOGIC ---
+    int idle_counter = 0;
     while (keepRunning) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        if (frontier.getSize() == 0 && keepRunning) {
-             std::cout << "[System] Queue empty. Waiting for threads..." << std::endl;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        
+        if (frontier.getSize() == 0) {
+            idle_counter++;
+            // If queue is empty for 4 seconds, assume we are done
+            if (idle_counter >= 4) {
+                std::cout << "\n[System] Queue is empty and threads are idle." << std::endl;
+                std::cout << "[System] Auto-shutdown initiated..." << std::endl;
+                keepRunning = false;
+                frontier.shutdown();
+            }
+        } else {
+            idle_counter = 0; // Reset counter if new links appeared
         }
     }
 
-    // 5. CLEANUP & SAVE
     std::cout << "--- SAVING STATE ---" << std::endl;
     for (auto& t : pool) {
         if (t.joinable()) t.join();
     }
     
-    frontier.saveData("crawler_state.txt"); // <--- PERSISTENCE
+    // Save the "Brain" (for resuming later)
+    frontier.saveData("crawler_state.txt");
+    
+    // --- NEW: EXPORT DATA (For you to use) ---
+    frontier.exportToCSV("crawled_links.csv");
+
     std::cout << "Goodbye." << std::endl;
 
     return 0;

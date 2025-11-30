@@ -14,6 +14,9 @@ void UrlFrontier::push(const std::string& url) {
         
         // 3. Notify one waiting worker that data is available
         cv.notify_one(); 
+    } else {
+        // --- NEW MODIFICATION ---
+        std::cout << "[System] Duplicate found & skipped: " << url << std::endl;
     }
 }
 
@@ -108,5 +111,28 @@ void UrlFrontier::loadData(const std::string& filename) {
     }
     
     std::cout << "[System] Restored " << taskQueue.size() << " tasks from disk." << std::endl;
+    file.close();
+}
+
+// EXPORT UNIQUE LINKS TO CSV
+void UrlFrontier::exportToCSV(const std::string& filename) {
+    // 1. Lock the memory so threads don't change it while we write
+    std::lock_guard<std::mutex> lock(mtx);
+    
+    std::ofstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "[Error] Could not open file for CSV export." << std::endl;
+        return;
+    }
+
+    // 2. Write CSV Header
+    file << "URL" << "\n";
+
+    // 3. Write all unique URLs
+    for (const auto& url : visited) {
+        file << url << "\n";
+    }
+    
+    std::cout << "[System] Exported " << visited.size() << " unique links to " << filename << std::endl;
     file.close();
 }
